@@ -22,30 +22,49 @@ def run_html(html_content):
 
     return f"Saved to {os.path.realpath(f.name)} and opened with the user's default web browser."
 
+def docker_run(code, start_cmd, docker_image):
+    # Create a temporary file with the code
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+        f.write(code.encode())
+    
+    # Run the docker image with the code file mounted
+    # (we'll use the same name for the container as the file)
+    return subprocess.Popen(
+       ["docker", "run", "--rm", "--name", f.name, "-v", f.name + ":/code.txt", "-it", docker_image, start_cmd, "/code.txt"],
+       stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=0
+       )
 
 # Mapping of languages to their start, run, and print commands
 language_map = {
   "python": {
     # Python is run from this interpreter with sys.executable
     # in interactive, quiet, and unbuffered mode
-    "start_cmd": sys.executable + " -i -q -u",
-    "print_cmd": 'print("{}")'
+    "start_cmd":"python3 -i -q -u",
+    "print_cmd": 'print("{}")',
+    "docker_image": "python:3.9.1-slim-buster"
   },
   "shell": {
     # On Windows, the shell start command is `cmd.exe`
     # On Unix, it should be the SHELL environment variable (defaults to 'bash' if not set)
     "start_cmd": 'cmd.exe' if platform.system() == 'Windows' else os.environ.get('SHELL', 'bash'),
-    "print_cmd": 'echo "{}"'
+    "print_cmd": 'echo "{}"',
+    "docker_image": "bash:5.1.0"
   },
   "javascript": {
     "start_cmd": "node -i",
-    "print_cmd": 'console.log("{}")'
+    "print_cmd": 'console.log("{}")',
+    "docker_image": "node:15.8.0-alpine3.10"
   },
   "applescript": {
     # Starts from shell, whatever the user's preference (defaults to '/bin/zsh')
     # (We'll prepend "osascript -e" every time, not once at the start, so we want an empty shell)
     "start_cmd": os.environ.get('SHELL', '/bin/zsh'),
-    "print_cmd": 'log "{}"'
+    "print_cmd": 'log "{}"',
+    "docker_image": "alpine:3.13.1"
   },
   "html": {
     "open_subrocess": False,
@@ -78,12 +97,7 @@ class CodeInterpreter:
     start_cmd = language_map[self.language]["start_cmd"]
 
     # Use the appropriate start_cmd to execute the code
-    self.proc = subprocess.Popen(start_cmd.split(),
-                                 stdin=subprocess.PIPE,
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,
-                                 text=True,
-                                 bufsize=0)
+    self.proc = docker_run(self.code, start_cmd, language_map[self.language]["docker_image"])
 
     # Start watching ^ its `stdout` and `stderr` streams
     threading.Thread(target=self.save_and_display_stream,
